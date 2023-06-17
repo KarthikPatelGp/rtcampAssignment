@@ -1,0 +1,99 @@
+#!/bin/bash
+
+# Check if the site name is provided as an argument
+if [ $# -eq 0 ]; then
+   echo "Please provide a site name as an argument."
+   exit 1
+fi
+
+SITE_NAME=$1
+WORDPRESS_VERSION=$(curl -s https://api.wordpress.org/core/version-check/1.7/ | grep -oP "^\d+\.\d+(\.\d+)?")
+
+# Create a new directory for the WordPress site
+mkdir "$SITE_NAME"
+cd "$SITE_NAME"
+
+# Create a Docker Compose file
+cat << EOF > docker-compose.yml
+version: '3'
+services:
+ nginx:
+   image: nginx:latest
+   ports:
+     - 8000:80
+   volumes:
+     - ./wordpress:/var/www/html
+     - ./nginx.conf:/etc/nginx/nginx.conf
+ php:
+   image: php:latest
+   volumes:
+     - ./wordpress:/var/www/html
+ mysql:
+   image: mysql:5.7
+   environment:
+     MYSQL_ROOT_PASSWORD: wordpress
+     MYSQL_DATABASE: wordpress
+     MYSQL_USER: wordpress
+     MYSQL_PASSWORD: wordpress
+   volumes:
+     - ./mysql:/var/lib/mysql
+EOF
+
+# Create the Nginx configuration file
+cat << EOF > nginx.conf
+events {
+   worker_connections  1024;
+}
+http {
+   server {
+       listen 80;
+       server_name example.com;
+       root /var/www/html;
+       index index.php;
+
+       location / {
+           try_files \$uri \$uri/ /index.php?\$args;
+       }
+
+       location ~ \.php\$ {
+           fastcgi_pass php:9000;
+           fastcgi_index index.php;
+           fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+           include fastcgi_params;
+       }
+   }
+}
+EOF
+
+# Create the WordPress directory
+mkdir wordpress
+
+# Start the Docker containers
+start_containers() {
+    docker-compose up -d
+    echo "WordPress site started successfully!"
+    echo "Please open http://example.com:8000 in your browser."
+}
+
+# Stop the Docker containers
+stop_containers() {
+    docker-compose down
+    echo "WordPress site stopped successfully!"
+}
+
+# Add /etc/hosts entry
+sudo -- sh -c "echo '127.0.0.1 example.com' >> /etc/hosts"
+
+# Check if a subcommand is provided
+if [ $# -eq 2 ]; then
+    subcommand=$2
+    if [ "$subcommand" == "start" ]; then
+        start_containers
+    elif [ "$subcommand" == "stop" ]; then
+        stop_containers
+    else
+        echo "Invalid subcommand. Please use 'start' or 'stop'."
+    fi
+else
+    start_containers
+fi
